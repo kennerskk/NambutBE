@@ -5,7 +5,7 @@ const {
   ListToolsRequestSchema 
 } = require("@modelcontextprotocol/sdk/types.js");
 
-const { portfolios, saveData, io, server } = require("./server");
+const db = require("./src/config/db");
 
 // Create MCP Server
 const mcpServer = new Server(
@@ -30,7 +30,7 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            portfolio_id: { type: "string", description: "ID of the portfolio (usually 'default')" },
+            portfolio_id: { type: "string", description: "ID of the portfolio" },
             device: { type: "string", enum: ["desktop", "tablet", "mobile"], description: "Which device layout to modify (default: desktop)" },
             type: { type: "string", enum: ["text", "button", "image", "card"] },
             content: { type: "string", description: "Text content or image URL" },
@@ -121,18 +121,19 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   
-  if (!args.portfolio_id) args.portfolio_id = "default";
+  if (!args.portfolio_id) throw new Error("portfolio_id is required");
   
-  if (!portfolios[args.portfolio_id]) {
-    throw new Error(`Portfolio ${args.portfolio_id} not found`);
+  const result = await db.query('SELECT * FROM cards WHERE id = $1', [args.portfolio_id]);
+  if (result.rows.length === 0) {
+    throw new Error(`Portfolio ${args.portfolio_id} not found in database`);
   }
   
-  const portfolio = portfolios[args.portfolio_id];
+  const card = result.rows[0];
   const device = args.device || "desktop";
-  const arrName = `${device}Elements`;
+  const arrName = `${device}_elements`;
+  let elements = card[arrName] || [];
 
   if (name === "add_element") {
-    if (!portfolio[arrName]) portfolio[arrName] = [];
     const newElement = {
       id: generateId(),
       type: args.type,
@@ -143,9 +144,8 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
       h: args.position.h || 50,
       style: args.style || {}
     };
-    portfolio[arrName].push(newElement);
-    saveData();
-    io.to(args.portfolio_id).emit('state_update', portfolio);
+    elements.push(newElement);
+    await db.query(`UPDATE cards SET ${arrName} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [JSON.stringify(elements), args.portfolio_id]);
     
     return {
       content: [{ type: "text", text: `Element added with ID: ${newElement.id} on ${device}` }]
@@ -153,13 +153,11 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
   
   if (name === "update_element_style") {
-    if (!portfolio[arrName]) throw new Error("Element not found");
-    const el = portfolio[arrName].find(e => e.id === args.element_id);
-    if (!el) throw new Error("Element not found");
+    const elIndex = elements.findIndex(e => e.id === args.element_id);
+    if (elIndex === -1) throw new Error("Element not found");
     
-    el.style = { ...el.style, ...args.new_styles };
-    saveData();
-    io.to(args.portfolio_id).emit('state_update', portfolio);
+    elements[elIndex].style = { ...elements[elIndex].style, ...args.new_styles };
+    await db.query(`UPDATE cards SET ${arrName} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [JSON.stringify(elements), args.portfolio_id]);
     
     return {
       content: [{ type: "text", text: `Element ${args.element_id} style updated on ${device}` }]
@@ -167,14 +165,12 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
   
   if (name === "move_element") {
-    if (!portfolio[arrName]) throw new Error("Element not found");
-    const el = portfolio[arrName].find(e => e.id === args.element_id);
-    if (!el) throw new Error("Element not found");
+    const elIndex = elements.findIndex(e => e.id === args.element_id);
+    if (elIndex === -1) throw new Error("Element not found");
     
-    el.x = args.x;
-    el.y = args.y;
-    saveData();
-    io.to(args.portfolio_id).emit('state_update', portfolio);
+    elements[elIndex].x = args.x;
+    elements[elIndex].y = args.y;
+    await db.query(`UPDATE cards SET ${arrName} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [JSON.stringify(elements), args.portfolio_id]);
     
     return {
       content: [{ type: "text", text: `Element ${args.element_id} moved to (${args.x}, ${args.y}) on ${device}` }]
@@ -182,16 +178,14 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   if (name === "delete_element") {
-    if (!portfolio[arrName]) throw new Error("Element not found");
-    const initialLength = portfolio[arrName].length;
-    portfolio[arrName] = portfolio[arrName].filter(e => e.id !== args.element_id);
+    const initialLength = elements.length;
+    elements = elements.filter(e => e.id !== args.element_id);
     
-    if (portfolio[arrName].length === initialLength) {
+    if (elements.length === initialLength) {
       throw new Error("Element not found");
     }
     
-    saveData();
-    io.to(args.portfolio_id).emit('state_update', portfolio);
+    await db.query(`UPDATE cards SET ${arrName} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [JSON.stringify(elements), args.portfolio_id]);
     
     return {
       content: [{ type: "text", text: `Element ${args.element_id} deleted on ${device}` }]
@@ -199,12 +193,9 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
   
   if (name === "update_background") {
-    if (!portfolio.settings) {
-      portfolio.settings = {};
-    }
-    portfolio.settings = { ...portfolio.settings, ...args.background };
-    saveData();
-    io.to(args.portfolio_id).emit('state_update', portfolio);
+    let settings = card.settings || {};
+    settings = { ...settings, ...args.background };
+    await db.query(`UPDATE cards SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [settings, args.portfolio_id]);
     
     return {
       content: [{ type: "text", text: `Background updated successfully` }]
@@ -218,12 +209,7 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function runMcpServer() {
   const transport = new StdioServerTransport();
   await mcpServer.connect(transport);
-  console.error("Profoliot MCP server running on stdio");
+  console.error("Nambut MCP server running on stdio");
 }
 
-// Start HTTP server (Express+WebSockets) in the background so it can receive connections
-const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-  console.error(`HTTP & WS Server running on port ${PORT}`);
-  runMcpServer().catch(console.error);
-});
+runMcpServer().catch(console.error);

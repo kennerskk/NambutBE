@@ -48,7 +48,8 @@ const getCardById = async (req, res) => {
       desktopElements: card.desktop_elements,
       tabletElements: card.tablet_elements,
       mobileElements: card.mobile_elements,
-      userId: card.user_id
+      userId: card.user_id,
+      updatedAt: card.updated_at
     });
   } catch (err) {
     console.error('Get card by id error:', err);
