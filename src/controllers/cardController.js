@@ -68,6 +68,12 @@ const saveCard = async (req, res) => {
     }
 
     if (existing.rows.length === 0) {
+      // Check limit before creating new card
+      const cardCount = await db.query('SELECT COUNT(*) FROM cards WHERE user_id = $1', [req.user.id]);
+      if (parseInt(cardCount.rows[0].count) >= 3) {
+        return res.status(403).json({ error: 'LIMIT_REACHED', message: 'You can only have up to 3 cards.' });
+      }
+
       await db.query(`
         INSERT INTO cards (id, user_id, title, settings, desktop_elements, tablet_elements, mobile_elements) 
         VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -102,8 +108,31 @@ const saveCard = async (req, res) => {
   }
 };
 
+const deleteCard = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Ensure the user owns the card
+    const existing = await db.query('SELECT user_id FROM cards WHERE id = $1', [id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Card not found' });
+    }
+    
+    if (existing.rows[0].user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Not authorized to delete this card' });
+    }
+
+    await db.query('DELETE FROM cards WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete card error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 module.exports = {
   getMyCards,
   getCardById,
-  saveCard
+  saveCard,
+  deleteCard
 };
