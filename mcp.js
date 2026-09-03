@@ -26,11 +26,11 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "add_element",
-        description: "Add a new component to the portfolio canvas",
+        description: "Add a new component to the introduction card canvas",
         inputSchema: {
           type: "object",
           properties: {
-            portfolio_id: { type: "string", description: "ID of the portfolio" },
+            card_id: { type: "string", description: "ID of the introduction card" },
             device: { type: "string", enum: ["desktop", "tablet", "mobile"], description: "Which device layout to modify (default: desktop)" },
             type: { type: "string", enum: ["text", "button", "image", "card"] },
             content: { type: "string", description: "Text content or image URL" },
@@ -45,7 +45,7 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             style: { type: "object", description: "CSS styles in camelCase, e.g. { backgroundColor: '#f00' }" }
           },
-          required: ["portfolio_id", "type", "content", "position"]
+          required: ["card_id", "type", "content", "position"]
         }
       },
       {
@@ -54,12 +54,12 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            portfolio_id: { type: "string" },
+            card_id: { type: "string" },
             device: { type: "string", enum: ["desktop", "tablet", "mobile"] },
             element_id: { type: "string" },
             new_styles: { type: "object", description: "CSS styles to merge with existing styles" }
           },
-          required: ["portfolio_id", "element_id", "new_styles"]
+          required: ["card_id", "element_id", "new_styles"]
         }
       },
       {
@@ -68,13 +68,13 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            portfolio_id: { type: "string" },
+            card_id: { type: "string" },
             device: { type: "string", enum: ["desktop", "tablet", "mobile"] },
             element_id: { type: "string" },
             x: { type: "number" },
             y: { type: "number" }
           },
-          required: ["portfolio_id", "element_id", "x", "y"]
+          required: ["card_id", "element_id", "x", "y"]
         }
       },
       {
@@ -83,11 +83,11 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            portfolio_id: { type: "string" },
+            card_id: { type: "string" },
             device: { type: "string", enum: ["desktop", "tablet", "mobile"] },
             element_id: { type: "string" }
           },
-          required: ["portfolio_id", "element_id"]
+          required: ["card_id", "element_id"]
         }
       },
       {
@@ -96,7 +96,7 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            portfolio_id: { type: "string" },
+            card_id: { type: "string" },
             background: { 
               type: "object", 
               properties: {
@@ -109,7 +109,7 @@ mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
               }
             }
           },
-          required: ["portfolio_id", "background"]
+          required: ["card_id", "background"]
         }
       }
     ]
@@ -121,11 +121,11 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
   
-  if (!args.portfolio_id) throw new Error("portfolio_id is required");
+  if (!args.card_id) throw new Error("card_id is required");
   
-  const result = await db.query('SELECT * FROM cards WHERE id = $1', [args.portfolio_id]);
+  const result = await db.query('SELECT * FROM cards WHERE id = $1', [args.card_id]);
   if (result.rows.length === 0) {
-    throw new Error(`Portfolio ${args.portfolio_id} not found in database`);
+    throw new Error(`introduction card ${args.card_id} not found in database`);
   }
   
   const card = result.rows[0];
@@ -145,7 +145,7 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
       style: args.style || {}
     };
     elements.push(newElement);
-    await db.query(`UPDATE cards SET ${arrName} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [JSON.stringify(elements), args.portfolio_id]);
+    await db.query(`UPDATE cards SET ${arrName} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [JSON.stringify(elements), args.card_id]);
     
     return {
       content: [{ type: "text", text: `Element added with ID: ${newElement.id} on ${device}` }]
@@ -157,7 +157,7 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (elIndex === -1) throw new Error("Element not found");
     
     elements[elIndex].style = { ...elements[elIndex].style, ...args.new_styles };
-    await db.query(`UPDATE cards SET ${arrName} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [JSON.stringify(elements), args.portfolio_id]);
+    await db.query(`UPDATE cards SET ${arrName} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [JSON.stringify(elements), args.card_id]);
     
     return {
       content: [{ type: "text", text: `Element ${args.element_id} style updated on ${device}` }]
@@ -170,7 +170,7 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
     
     elements[elIndex].x = args.x;
     elements[elIndex].y = args.y;
-    await db.query(`UPDATE cards SET ${arrName} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [JSON.stringify(elements), args.portfolio_id]);
+    await db.query(`UPDATE cards SET ${arrName} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [JSON.stringify(elements), args.card_id]);
     
     return {
       content: [{ type: "text", text: `Element ${args.element_id} moved to (${args.x}, ${args.y}) on ${device}` }]
@@ -185,7 +185,7 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
       throw new Error("Element not found");
     }
     
-    await db.query(`UPDATE cards SET ${arrName} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [JSON.stringify(elements), args.portfolio_id]);
+    await db.query(`UPDATE cards SET ${arrName} = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [JSON.stringify(elements), args.card_id]);
     
     return {
       content: [{ type: "text", text: `Element ${args.element_id} deleted on ${device}` }]
@@ -195,7 +195,7 @@ mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (name === "update_background") {
     let settings = card.settings || {};
     settings = { ...settings, ...args.background };
-    await db.query(`UPDATE cards SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [settings, args.portfolio_id]);
+    await db.query(`UPDATE cards SET settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, [settings, args.card_id]);
     
     return {
       content: [{ type: "text", text: `Background updated successfully` }]
